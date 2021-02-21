@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <time.h>
 
-#define ROW_SIZE 100
+#define ROW_SIZE 64
 #define ITERATIONS 100
 
 // Typesafe to define O and I as 0 and 1 respectively.
