@@ -1,122 +1,165 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdarg.h>
-#include <string.h>
-#include <errno.h>
+#include <stdbool.h>
+#include <SDL.h>
 
-#ifdef __APPLE__
-#define GL_SILENCE_DEPRECATION
-#define GL_GLEXT_PROTOTYPES
-#include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
-#endif
-
-#define SCREEN_WIDTH  800
-#define SCREEN_HEIGHT 600
-
-// TODO: Look into stdarg
-void panic_errno(const char *fmt, ...) {
-  fprintf(stderr, "ERROR: ");
-
-  va_list args;
-  va_start(args, fmt);
-  vfprintf(stderr, fmt, args);
-  va_end(args);
-
-  fprintf(stderr, ": %s\n", strerror(errno));
-
-  exit(1);
-}
-
-const char* slurp_file(const char *file_path) {
-#define SLURP_FILE_PANIC panic_errno("Could not read file `%s`", file_path);
-  FILE *f = fopen(file_path, "r");
-  if (f == NULL) SLURP_FILE_PANIC;
-  if (fseek(f, 0, SEEK_END) < 0) SLURP_FILE_PANIC;
-
-  long size = ftell(f);
-  if (size < 0) SLURP_FILE_PANIC;
-
-  // Need to null terminate the buffer
-  char *buffer = malloc(size + 1);
-  if (buffer == NULL) SLURP_FILE_PANIC;
-
-  if (fseek(f, 0, SEEK_SET) < 0) SLURP_FILE_PANIC;
-
-  fread(buffer, 1, size, f);
-
-  if (ferror(f) < 0) SLURP_FILE_PANIC;
-
-  buffer[size] = '\0';
-
-  if (fclose(f) < 0) SLURP_FILE_PANIC;
-
-  return buffer;
-#undef SLURP_FILE_PANIC
-}
-
-GLuint compile_shader_file(const char *file_path, GLenum shader_type) {
-  GLuint shader = glCreateShader(shader_type);
-  const GLchar *source = slurp_file(file_path);
-  glShaderSource(shader, 1, &source, NULL);
-  glCompileShader(shader);
-
-  GLint compiled = 0;
-  glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
-
-  if (!compiled) {
-    GLchar message[1024];
-    GLsizei message_size = 0;
-    glGetShaderInfoLog(shader, sizeof(message), &message_size, message);
-    fprintf(stderr, "%.*s", message_size, message);
+// Checks to see if there is an error with any of the SDL ints
+int scc(int code) {
+  if (code < 0) {
+    fprintf(stderr, "SDL ERROR: %s\n", SDL_GetError());
     exit(1);
   }
 
-  return shader;
+  return code;
 }
 
-int main() {
-  // Initialize the library.
-  if (!glfwInit()) {
-    fprintf(stderr, "Error: Could not init GLFW");
-    // exit(1);
-    return -1;
+void *scp(void *ptr) {
+  if (ptr == NULL) {
+    fprintf(stderr, "SDL ERROR: %s\n", SDL_GetError());
+    exit(1);
   }
 
-  // Create a windows mode window and it's OpenGL context
-  GLFWwindow * const window = glfwCreateWindow(
-                                SCREEN_WIDTH, 
-                                SCREEN_HEIGHT,
-                                "Automata", 
-                                NULL, 
-                                NULL);
-  if (window == NULL) {
-    fprintf(stderr, "Error: Could not create a window.");
-    glfwTerminate();
-    // exit(1);
-    return -1;
+  return ptr;
+}
+
+
+// TODO: Read up on Bit Shifting and Colors
+#define BACKGROUND_COLOR 0x181818ff
+#define HEX_COLOR_UNPACK(color) \
+  ((color >> (8 * 3)) & 0xFF),  \
+  ((color >> (8 * 2)) & 0xFF),  \
+  ((color >> (8 * 1)) & 0xFF),  \
+  ((color >> (8 * 0)) & 0xFF)
+
+#define SCREEN_WIDTH 1920
+#define SCREEN_HEIGHT 1536
+
+#define ROWS 500
+#define COLS 500
+#define CELL_WIDTH ((float) SCREEN_WIDTH / (float) COLS)
+#define CELL_HEIGHT ((float) SCREEN_HEIGHT / (float) ROWS)
+
+typedef enum {
+  O = 0,
+  I = 1,
+} Cell;
+
+Uint32 cell_color[2] = {
+  [O] = 0x000000,
+  [I] = 0xFFAABB,
+  /* [O] = 0x00000000, */
+  /* [I] = 0xFFAABBFF, */
+};
+
+#define PATTERN(A, B, C) ((A << 2) | (B << 1) | C)
+
+Cell patterns[1 << 3] = {
+  [PATTERN(O,O,O)] = O,
+  [PATTERN(O,O,I)] = I,
+  [PATTERN(O,I,O)] = I,
+  [PATTERN(O,I,I)] = I,
+  [PATTERN(I,O,O)] = O,
+  [PATTERN(I,O,I)] = I,
+  [PATTERN(I,I,O)] = I,
+  [PATTERN(I,I,I)] = O,
+};
+
+typedef struct {
+  Cell cells[COLS];
+} Row;
+
+void render_row(SDL_Renderer *renderer, Row row, int y) {
+  for (int i = 0; i < COLS; ++i) {
+    const SDL_Rect rect = {
+      .x = (int) floor(i * CELL_WIDTH),
+      .y = y,
+      .w = (int) floorf(CELL_WIDTH),
+      .h = (int) floorf(CELL_HEIGHT)
+    };
+
+    scc(SDL_SetRenderDrawColor(
+          renderer,
+          HEX_COLOR_UNPACK(cell_color[row.cells[i]])));
+
+    scc(SDL_RenderFillRect(renderer, &rect));
+  }
+}
+
+Row next_row(Row prev) {
+  Row next = {0};
+
+  for (int i = 1; i < COLS - 1; ++i) {
+    const int index = PATTERN(prev.cells[i - 1],
+                              prev.cells[i],
+                              prev.cells[i + 1]);
+    next.cells[i] = patterns[index];
   }
 
-  // Make the window's context current
-  glfwMakeContextCurrent(window);
+  return next;
+}
 
-  // Loop until the user closes the window
-  while (!glfwWindowShouldClose(window)) {
-    /* Render here */
-    // TODO: Look into because this function is not working.
-    // glClear(GL_COLOR_BUFFER_BIT);
+Row random_row(void) {
+  Row result = {0};
 
-    // TODO: Look into this because I just got it from the documentation.
-    // render(window);
-    
-    /* Swap front and back buffers */
-    glfwSwapBuffers(window);
-
-    /* Poll for and process events */
-    glfwPollEvents();
+  for (int i = 0; i < COLS; ++i) {
+    result.cells[i] = rand() % 2;
   }
 
-  glfwTerminate();
+  return result;
+}
 
+int main(void) {
+  scc(SDL_Init(SDL_INIT_VIDEO));
+
+  SDL_Window * const window =
+    scp(SDL_CreateWindow("Automata",
+                          0, 0,
+                          SCREEN_WIDTH, SCREEN_HEIGHT,
+                          SDL_WINDOW_RESIZABLE));
+  SDL_Renderer * const renderer =
+    scp(SDL_CreateRenderer(window,
+                           -1,
+                           SDL_RENDERER_ACCELERATED));
+
+  scc(SDL_RenderSetLogicalSize(renderer,
+                           SCREEN_WIDTH,
+                           SCREEN_HEIGHT));
+  bool quit = false;
+
+  Row rows[ROWS];
+
+  _Static_assert(ROWS > 0, "There needs to be at least 1 row.");
+  rows[0] = random_row();
+
+  for (int i = 1; i < ROWS; ++i) {
+    rows[i] = next_row(rows[i - 1]);
+  }
+
+  while(!quit) {
+    SDL_Event event;
+    while (!SDL_PollEvent(&event)) {
+      switch(event.type) {
+        case SDL_QUIT: {
+          quit = true;
+        }
+        break;
+      }
+    }
+
+    scc(SDL_SetRenderDrawColor(
+          renderer,
+          HEX_COLOR_UNPACK(BACKGROUND_COLOR)));
+    scc(SDL_RenderClear(renderer));
+
+    for (int i = 0; i < ROWS; ++i) {
+      render_row(renderer, rows[i], i * CELL_HEIGHT);
+    }
+
+    SDL_RenderPresent(renderer);
+
+    SDL_Delay(10);
+  }
+
+  SDL_Quit();
   return 0;
 }

@@ -20,8 +20,8 @@ char cell_image[2] = {
   [I] = '#',
 };
 
-// Counting using bit shifting. 
-//  Binary Literals are not in C.
+// Counting using bit shifting.
+// Binary Literals are not in C.
 #define PATTERN(A, B, C) ((A << 2) | (B << 1) | C)
 
 // 1 << 3 is how to write 2^3
@@ -63,8 +63,10 @@ void print_row(Row row) {
 }
 
 Row random_row(void) {
+  // Initialize Result Row with All 0s
   Row result = {0};
 
+  // TODO: Make random more random.
   for (int i = 0; i < ROW_SIZE; ++i) {
     result.cells[i] = rand() % 2;
   }
